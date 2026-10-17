@@ -276,9 +276,11 @@ async fn a_kept_result_expires_with_no_request_to_purge_it_but_never_a_newer_one
     task.retain_result("room-1", json!({"x": 1}), 200);
     drop(task);
     tokio::time::sleep(retention / 2).await;
-    // A newer result replaces it before its timer fires.
+    // A newer result replaces it before its timer fires. Kept at the same
+    // wall-clock second, it expires at the same one, so only the room tells
+    // the two apart.
     let task = admit(&service, "second", 300);
-    task.retain_result("room-2", json!({"x": 2}), 300);
+    task.retain_result("room-2", json!({"x": 2}), 200);
     drop(task);
     tokio::time::sleep(retention / 2 + std::time::Duration::from_secs(1)).await;
     assert!(

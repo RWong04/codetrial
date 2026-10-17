@@ -763,6 +763,10 @@ fn a_compiled_language_needs_the_types_its_harness_is_built_from() {
     let mut row = fixture("customized");
     row["sidecar"]["languages"] = json!(["python", "cpp"]);
     assert!(record(&row).is_ok());
+    // An output written into the one parameter there is.
+    let mut written = row.clone();
+    written["judge"]["outputParam"] = json!(0);
+    assert!(record(&written).is_ok());
     let refused = "compiled languages need parameter and return types".to_owned();
     for (why, key, value) in [
         ("no parameter types", "paramTypes", None),
