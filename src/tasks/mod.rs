@@ -14,6 +14,20 @@ mod validation;
 
 pub use exercise::{Exercise, TaskRecord};
 
+/// Every language a task may be worked in: the ones the catalog ships
+/// starters for and the task page can run.
+pub const LANGUAGES: [&str; 5] = ["python", "javascript", "c", "cpp", "java"];
+
+/// The languages the page compiles on Compiler Explorer rather than running
+/// in the browser. A server with it turned off cannot run them.
+pub const COMPILED_LANGUAGES: [&str; 3] = ["c", "cpp", "java"];
+
+/// Whether this server's page can run `language`: C, C++ and Java compile on
+/// Compiler Explorer, which a server may turn off.
+pub fn runnable(language: &str, compiler_explorer: bool) -> bool {
+    LANGUAGES.contains(&language) && (compiler_explorer || !COMPILED_LANGUAGES.contains(&language))
+}
+
 static DEFAULTS: LazyLock<Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../../problem-bank/task-defaults.json"))
         .expect("checked task defaults")

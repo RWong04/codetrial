@@ -23,10 +23,12 @@ const task = {
   title: "Delimiter exercise",
   brief: ["Explain and complete this supplied loop."],
   contract: "Keep the surrounding contract.",
+  languages: ["python"],
   starterCode: { python: "# TASK_COMPLETE_CLOSER\npass\n" },
   completionTargets: [
     {
       id: "closer",
+      language: "python",
       marker: "TASK_COMPLETE_CLOSER",
       goal: "Complete the closer branch",
     },
@@ -386,6 +388,76 @@ test("a task opened without its assignment link says how to open it", async (t) 
   }
 });
 
+test("a task's languages are chosen before the room joins, and the editor follows the choice", async (t) => {
+  const starters = {
+    javascript: "function closer(s) {\n  // TASK_COMPLETE_CLOSER\n}\n",
+    cpp: "bool closer(string s) {\n  // TASK_COMPLETE_CLOSER\n}\n",
+    python: task.starterCode.python,
+  };
+  const ctx = await pageFor(t, {
+    taskOverrides: {
+      languages: ["javascript", "cpp", "python"],
+      starterCode: starters,
+      completionTargets: [
+        ...task.completionTargets,
+        {
+          id: "closer-js",
+          language: "javascript",
+          marker: "TASK_COMPLETE_CLOSER",
+          goal: "Complete the JavaScript closer",
+        },
+      ],
+    },
+  });
+  if (!ctx) return;
+  const { page, admissions } = ctx;
+  const editor = () =>
+    page.evaluate(() => ({
+      code: document.getElementById("code").value,
+      label: document.getElementById("code-label").textContent,
+      targets: [...document.getElementById("target").options].map(
+        (option) => option.textContent,
+      ),
+      compiled: !document.getElementById("compiled-note").hidden,
+    }));
+  try {
+    await unlock(page);
+    assert.equal(await page.locator("#language-choice").isVisible(), true);
+    // C++ is offered, so the page says where its runs go before any choice.
+    assert.equal(await page.locator("#language-note").isVisible(), true);
+    // The instructor's first language is the one offered first.
+    assert.deepEqual(await editor(), {
+      code: starters.javascript,
+      label: "JavaScript implementation",
+      targets: ["Whole task", "Complete the JavaScript closer"],
+      compiled: false,
+    });
+    await page.selectOption("#language", "python");
+    assert.deepEqual(await editor(), {
+      code: starters.python,
+      label: "Python implementation",
+      targets: ["Whole task", "Complete the closer branch"],
+      compiled: false,
+    });
+    await page.selectOption("#language", "cpp");
+    assert.deepEqual(await editor(), {
+      code: starters.cpp,
+      label: "C++ implementation",
+      targets: ["Whole task"],
+      compiled: true,
+    });
+    await prepare(page, true);
+    assert.equal(admissions.at(-1).language, "cpp");
+    // The room was admitted for C++; the choice holds from here.
+    assert.equal(await page.locator("#language").isDisabled(), true);
+    await page.click("#start");
+    await page.waitForFunction(() => !document.getElementById("code").disabled);
+    assert.equal((await editor()).label, "C++ implementation");
+  } finally {
+    await page.close();
+  }
+});
+
 test("rules, devices and calibration come before Start, and Start alone starts the clock", async (t) => {
   const ctx = await pageFor(t);
   if (!ctx) return;
@@ -418,6 +490,9 @@ test("rules, devices and calibration come before Start, and Start alone starts t
       () => !document.getElementById("start").disabled,
     );
     assert.equal(admissions.length, 1);
+    // One language is no choice to offer.
+    assert.equal(await page.locator("#language-choice").isHidden(), true);
+    assert.equal(admissions[0].language, "python");
     assert.ok(Date.parse(admissions[0].rulesAcknowledgedAt));
     assert.equal(admissions[0].calibration.ok, true);
     assert.equal(admissions[0].calibration.metric, "keypoints");
@@ -2362,6 +2437,48 @@ test("asking for the devices again closes the detector it replaces", async (t) =
     await freshCamera(page);
     await page.click("#recovery");
     await page.waitForFunction(() => globalThis.detectorCloses === 1);
+  } finally {
+    await page.close();
+  }
+});
+
+test("a request key refused once is not reused for another language", async (t) => {
+  const ctx = await pageFor(t, {
+    taskOverrides: {
+      languages: ["python", "javascript"],
+      starterCode: {
+        python: task.starterCode.python,
+        javascript: "// TASK_COMPLETE_CLOSER\n",
+      },
+    },
+  });
+  if (!ctx) return;
+  const { page, admissions } = ctx;
+  let refused = 0;
+  try {
+    await page.route("**/attempts", async (route) => {
+      if (refused++ === 0) {
+        admissions.push(route.request().postDataJSON());
+        return route.fulfill({
+          status: 409,
+          headers: { "Retry-After": "1" },
+          contentType: "application/json",
+          body: JSON.stringify({ code: "setup_pending", message: "Wait." }),
+        });
+      }
+      return route.fallback();
+    });
+    await prepare(page).catch(() => {});
+    await page.locator("#message").waitFor({ state: "visible" });
+    await page.selectOption("#language", "javascript");
+    await page.click("#calibrate");
+    await calibrationPhases(page);
+    await page.waitForFunction(
+      () => !document.getElementById("start").disabled,
+    );
+    assert.equal(admissions.length, 2);
+    assert.equal(admissions[1].language, "javascript");
+    assert.notEqual(admissions[0].requestKey, admissions[1].requestKey);
   } finally {
     await page.close();
   }

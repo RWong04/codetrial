@@ -261,6 +261,29 @@ class TaskSidecarTests(unittest.TestCase):
             with self.subTest(mode=mode), self.assertRaises(ValueError):
                 validate(data)
 
+    def test_a_compiled_language_needs_the_types_its_harness_is_built_from(self):
+        data = fixture()
+        data["sidecar"]["languages"] = ["python", "cpp"]
+        self.assertEqual(validate(data)["languages"], ["python", "cpp"])
+        for name, damage in (
+            ("no parameter types", lambda judge: judge.pop("paramTypes")),
+            ("no return type", lambda judge: judge.pop("returnType")),
+            ("short parameter types", lambda judge: judge.update(paramTypes=[])),
+            ("output past the parameters", lambda judge: judge.update(outputParam=1)),
+        ):
+            broken = copy.deepcopy(data)
+            damage(broken["judge"])
+            with (
+                self.subTest(name),
+                self.assertRaisesRegex(
+                    ValueError, "compiled languages need parameter and return types"
+                ),
+            ):
+                validate(broken)
+            # The browser languages build no typed harness.
+            broken["sidecar"]["languages"] = ["python", "javascript"]
+            validate(broken)
+
     def test_rejects_missing_fields_and_wrong_types(self):
         for key in fixture()["sidecar"]:
             data = fixture()
